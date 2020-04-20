@@ -149,7 +149,10 @@ class Generator:
                         token = self.getToken(size, hash_, equalProb)[0]
                     if (count < 100):
                         break
-        print (len(self.text))
+        collBrack = {'(' : ')', '{' : '}', '[' : ']', '"' : '"', "'" : "'"}
+        while len(self.stackPunct):
+            self.textStr += collBrack[self.stackPunct[-1]]
+            self.stackPunct.pop()
         return self.textStr
 
     def addToken(self, token, ordElem):
@@ -171,6 +174,7 @@ class Generator:
             if len(self.stackPunct):
                 return False
             self.textStr += token
+            self.state = 'start'
 
         if token[0] in middleofSent:
             if not len(self.text):
@@ -186,20 +190,26 @@ class Generator:
         if token[0] in endBrack:
             if not len(self.text):
                 return False
-            if not len(self.stackPunct):
-                return False
-            if collBrack[self.stackPunct.Top()] != token:
-                if token != '"' and token != "'":
+            if token != '"' and token != "'":
+                if not len(self.stackPunct):
                     return False
-                else:
+                if collBrack[self.stackPunct[-1]] != token:
+                    return False
+                self.stackPunct.pop()
+                self.textStr += token
+            else:
+                if len(self.stackPunct) and self.stackPunct[-1] == token:
                     quotes = True
-            self.stackPunct.pop()
-            self.textStr += token
+                    self.stackPunct.pop()
+                    self.textStr += token
+
 
         if token[0] in openBrack:
             #Spaces
             if not quotes:
                 self.stackPunct.append(token)
+                if token == '"' or token == "'":
+                    self.textStr += ' '
                 self.textStr += token
 
         if token[0] in words:
@@ -207,8 +217,9 @@ class Generator:
                 pass
             else:
                 self.textStr += ' '
-            if not len(self.text) or self.text[-1][0] in endOfSent:
+            if self.state == 'start':
                 self.textStr += token.capitalize()
+                self.state = 'inSent'
             else:
                 self.textStr += token
 
