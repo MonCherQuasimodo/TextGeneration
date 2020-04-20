@@ -4,6 +4,7 @@ from unicodedata import category
 import argparse
 import sys
 import pickle
+import string
 
 def sysInput():
     parser = argparse.ArgumentParser(prog='TextGenerator')
@@ -130,6 +131,7 @@ class Generator:
         self.text = []
         self.stackPunct = []
         self.textStr = ''
+        self.state = 'start'
         for i in range(self.length):
             for size in range(min(i, self.depth), -1, -1):
                 textSuffix = self.text[-size :]
@@ -138,7 +140,7 @@ class Generator:
                     token = '*__Initialize__*'
                     count = 0
                     equalProb = False
-                    while not self.addToken(token):
+                    while not self.addToken(token, i):
                         count += 1
                         if (count > 5):
                             equalProb = True
@@ -150,33 +152,66 @@ class Generator:
         print (len(self.text))
         return self.textStr
 
-    def addToken(self, token):
+    def addToken(self, token, ordElem):
         if token == '*__Initialize__*':
             return False
 
-        if category(token[0]) == 'Po':
-            if not len(self.text) and len(self.stackPunct) or len(self.text) and category(self.text[-1][0]) == 'Po':
+        endOfSent = {'!', '.', '?'}
+        middleofSent = {',', ':', ';'}
+        openBrack = {'(', '{', '[', "'", '"'}
+        endBrack = {')', '}', ']', "'", '"'}
+        collBrack = {'(' : ')', '{' : '}', '[' : ']', '"' : '"', "'" : "'"}
+        words = set(string.ascii_letters)
+
+        if token[0] in endOfSent:
+            if not len(self.text):
                 return False
-            self.textStr += token + ' '
+            if (self.text[-1][0] in openBrack or self.text[-1][0] in middleofSent or self.text[-1][0] in endOfSent):
+                return False
+            if len(self.stackPunct):
+                return False
+            self.textStr += token
 
-        if category(token[0]) == 'Ps':
-            self.stackPunct.append(token)
-            self.textStr += ' ' + token
+        if token[0] in middleofSent:
+            if not len(self.text):
+                return False
+            if (self.text[-1][0] in openBrack or self.text[-1][0] in middleofSent or self.text[-1][0] in endOfSent):
+                return False
+            if len(self.stackPunct):
+                return False
+            self.textStr += token
 
-        if category(token[0]) == 'Pe':
-            if len(self.stackPunct) and ord(tokens[0]) - ord(self.stackPunct.top()[0]) < 3:
-                self.stackPunct.pop()
-                self.textStr += token + ' '
+        quotes = False
+
+        if token[0] in endBrack:
+            if not len(self.text):
+                return False
+            if not len(self.stackPunct):
+                return False
+            if collBrack[self.stackPunct.Top()] != token:
+                if token != '"' and token != "'":
+                    return False
+                else:
+                    quotes = True
+            self.stackPunct.pop()
+            self.textStr += token
+
+        if token[0] in openBrack:
+            #Spaces
+            if not quotes:
+                self.stackPunct.append(token)
+                self.textStr += token
+
+        if token[0] in words:
+            if not len(self.text) or self.text[-1][0] in openBrack:
+                pass
             else:
-                return False
-
-        if category(token[0]).startswith('L'):
-            if len(self.text) and category(self.text[-1][0]).startswith('L'):
                 self.textStr += ' '
-            if not len(self.text) or category(self.text[-1][0]) == 'Po' and not self.text[-1][0] in {',', ':', ';'}:
+            if not len(self.text) or self.text[-1][0] in endOfSent:
                 self.textStr += token.capitalize()
             else:
                 self.textStr += token
+
         self.text.append(token)
         return True
 
@@ -194,7 +229,6 @@ class Generator:
         file.write(text)
 
 if __name__ == "__main__":
-    print(category('"'))
     args = sysInput()
     if (args['mode'] == 'calculation'):
         calc = Calculator(args)
