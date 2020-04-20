@@ -1,5 +1,6 @@
 from collections import defaultdict
 from random import choices
+from unicodedata import category
 import argparse
 import sys
 import pickle
@@ -107,8 +108,7 @@ class Calculator:
              i -= 1
         punctAfter.reverse()
         word = word[:i+1]
-        word.lower()
-        tokens.append(word)
+        tokens.append(word.lower())
         tokens.extend(punctAfter)
 
         return tokens
@@ -122,35 +122,79 @@ class Generator:
         self.generate()
 
     def generate(self):
-        data = Generator.readFile(self.inputFile)
-        text = Generator.dataToText(data, self.depth, self.length)
+        self.data = Generator.readFile(self.inputFile)
+        text = self.dataToText()
         Generator.writeFile(self.outputFile, text)
 
-    def dataToText(data, depth, length):
-        text = []
-        for i in range(length):
-            for size in range(min(i, depth), -1, -1):
-                print (size)
-                textSuffix = text[-size :]
-                print(textSuffix)
+    def dataToText(self):
+        self.text = []
+        self.stackPunct = []
+        self.textStr = ''
+        for i in range(self.length):
+            for size in range(min(i, self.depth), -1, -1):
+                textSuffix = self.text[-size :]
                 hash_ = tuple(textSuffix) #we can use hash
-                if hash_ in data.data[size]:
-                    text.extend(Generator.getToken(data, size, hash_))
-                    break
-        return str(text)
+                if hash_ in self.data.data[size]:
+                    token = '*__Initialize__*'
+                    count = 0
+                    equalProb = False
+                    while not self.addToken(token):
+                        count += 1
+                        if (count > 5):
+                            equalProb = True
+                        if (count > 100):
+                            break
+                        token = self.getToken(size, hash_, equalProb)[0]
+                    if (count < 100):
+                        break
+        print (len(self.text))
+        return self.textStr
 
-    def getToken(data, size, hash_):
-        return choices(data.data[size][hash_][0], data.data[size][hash_][1])
+    def addToken(self, token):
+        if token == '*__Initialize__*':
+            return False
+
+        if category(token[0]) == 'Po':
+            if not len(self.text) and len(self.stackPunct) or len(self.text) and category(self.text[-1][0]) == 'Po':
+                return False
+            self.textStr += token + ' '
+
+        if category(token[0]) == 'Ps':
+            self.stackPunct.append(token)
+            self.textStr += ' ' + token
+
+        if category(token[0]) == 'Pe':
+            if len(self.stackPunct) and ord(tokens[0]) - ord(self.stackPunct.top()[0]) < 3:
+                self.stackPunct.pop()
+                self.textStr += token + ' '
+            else:
+                return False
+
+        if category(token[0]).startswith('L'):
+            if len(self.text) and category(self.text[-1][0]).startswith('L'):
+                self.textStr += ' '
+            if not len(self.text) or category(self.text[-1][0]) == 'Po' and not self.text[-1][0] in {',', ':', ';'}:
+                self.textStr += token.capitalize()
+            else:
+                self.textStr += token
+        self.text.append(token)
+        return True
+
+    def getToken(self, size, hash_, equalProb=False):
+        if equalProb:
+            return choices(self.data.data[size][hash_][0])
+        else:
+            return choices(self.data.data[size][hash_][0], self.data.data[size][hash_][1])
 
     def readFile(file):
         data = pickle.load(file)
         return data
 
     def writeFile(file, text):
-        print(text)
         file.write(text)
 
 if __name__ == "__main__":
+    print(category('"'))
     args = sysInput()
     if (args['mode'] == 'calculation'):
         calc = Calculator(args)
