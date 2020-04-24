@@ -9,6 +9,7 @@ import string
 CONST_EQ = 5
 CONST_BR = 100
 
+
 def sys_input():
     parser = argparse.ArgumentParser(prog='TextGenerator')
 
@@ -67,10 +68,10 @@ class Data:
             for key in cur_depth_dict.keys():
                 tokens = list(cur_depth_dict[key].keys())
                 abs_sum = sum(cur_depth_dict[key].values())
-                normal_probabilities = []
+                normal_prob = []
                 for i in tokens:
-                    normal_probabilities.append(cur_depth_dict[key][i] / abs_sum)
-                cur_depth_dict[key] = (tokens, normal_probabilities)
+                    normal_prob.append(cur_depth_dict[key][i] / abs_sum)
+                cur_depth_dict[key] = (tokens, normal_prob)
 
     def __repr__(self):
         output = 'Statistic:\n'
@@ -177,7 +178,6 @@ class Generator:
         while len(self.stack_punct):
             self.text_str += coll_brack[self.stack_punct[-1]]
             self.stack_punct.pop()
-
         return self.text_str + '\n'
 
     def add_token(self, token, ord_elem):
@@ -185,12 +185,19 @@ class Generator:
             return False
 
         end_of_sent = {'!', '.', '?'}
-        middle_of_sent = {',', ':', ';'}
+        middle_of_sent = {',', ':', ';', '—'}
         unordered_quotes = {"'",  '"'}
         open_brack = {'(', '{', '[', '«'}
         end_brack = {')', '}', ']', '»'}
-        coll_brack = {'(': ')', '{': '}', '[': ']', '«': '»'}
         words = set(string.ascii_letters)
+
+        all_symb = end_of_sent | middle_of_sent | unordered_quotes
+        all_symb = all_symb | open_brack | end_brack | words
+
+        coll_brack = {'(': ')', '{': '}', '[': ']', '«': '»'}
+
+        if token[0] not in all_symb:
+            return False
 
         if self.length - ord_elem == len(self.stack_punct) + 1:
             token = self.get_word()[0]
