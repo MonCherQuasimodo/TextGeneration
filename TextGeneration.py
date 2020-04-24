@@ -6,44 +6,56 @@ import sys
 import pickle
 import string
 
+
 def sysInput():
     parser = argparse.ArgumentParser(prog='TextGenerator')
-    subparsers = parser.add_subparsers(title='Modes', dest='mode', help='Choose one of working modes:')
+
+    subparsers = parser.add_subparsers(title='Modes',
+                                       dest='mode',
+                                       help='Choose one of working modes:')
 
     parser_calc = subparsers.add_parser('calculation',
-                                        help='First mode, create a file with probabilities by the native text')
+                                        help='Create a file with prob-ies')
 
-    parser_calc.add_argument('--inputFile', type=argparse.FileType('r', encoding='UTF-8'),
+    parser_calc.add_argument('--inputFile',
+                             type=argparse.FileType('r', encoding='UTF-8'),
                              required=True, help='Native text')
+
     parser_calc.add_argument('--outputFile', type=argparse.FileType('wb', 0),
                              required=True, help='File for probabilities')
+
     parser_calc.add_argument('--depth', type=int,
                              required=True, help='Depth of algorithm')
 
-
     parser_calc = subparsers.add_parser('generation',
-                                        help='Generate "Native text" by the file with probabilities')
+                                        help='Generate "Native text"')
+
     parser_calc.add_argument('--inputFile', type=argparse.FileType('rb', 0),
                              required=True, help='File with probabilities')
-    parser_calc.add_argument('--outputFile', type=argparse.FileType('w', encoding='UTF-8'),
+
+    parser_calc.add_argument('--outputFile',
+                             type=argparse.FileType('w', encoding='UTF-8'),
                              default=sys.stdout, help='File for "Native text"')
+
     parser_calc.add_argument('--length', type=int,
                              required='True', help='Length of a text')
+
     parser_calc.add_argument('--depth', type=int,
                              required='True', help='Depth of algorithm')
     return vars(parser.parse_args())
 
+
 class Data:
     def __init__(self, depth, tokens):
-        self.tokensToStatistic(depth, tokens);
+        self.tokensToStatistic(depth, tokens)
 
     def tokensToStatistic(self, depth, tokens):
         self.data = [defaultdict(dict) for i in range(depth + 1)]
 
         for curDepth in range(depth + 1):
             for start in range(len(tokens) - curDepth):
-                subList = tokens[start : start + curDepth]
-                hash_ = (tuple(subList)) #we can use hash
+                subList = tokens[start: start + curDepth]
+                hash_ = (tuple(subList))
                 if tokens[start + curDepth] in self.data[curDepth][hash_]:
                     self.data[curDepth][hash_][tokens[start + curDepth]] += 1
                 else:
@@ -65,6 +77,7 @@ class Data:
                 output += str(c) + '\n'
             output += '\n'
         return output
+
 
 class Calculator:
     def __init__(self, args):
@@ -105,14 +118,15 @@ class Calculator:
         punctAfter = []
         i = len(word) - 1
         while i > 1 and not word[i].isalpha():
-             punctAfter.append(word[i])
-             i -= 1
+            punctAfter.append(word[i])
+            i -= 1
         punctAfter.reverse()
         word = word[:i+1]
         tokens.append(word.lower())
         tokens.extend(punctAfter)
 
         return tokens
+
 
 class Generator:
     def __init__(self, args):
@@ -126,34 +140,45 @@ class Generator:
         self.data = Generator.readFile(self.inputFile)
         text = self.dataToText()
         Generator.writeFile(self.outputFile, text)
+        print("The generation has ended")
 
     def dataToText(self):
         self.text = []
         self.stackPunct = []
         self.textStr = ''
         self.state = 'start'
+        self.constEq = 5
+        self.constBr = 100
+        self.wds = [i for i in self.data.data[0][tuple([])][0] if i.isalpha()]
+
         for i in range(self.length):
+            if self.length - i == len(self.stackPunct):
+                break
             for size in range(min(i, self.depth), -1, -1):
-                textSuffix = self.text[-size :]
-                hash_ = tuple(textSuffix) #we can use hash
+                textSuffix = self.text[-size:] if size > 0 else []
+                hash_ = tuple(textSuffix)
                 if hash_ in self.data.data[size]:
                     token = '*__Initialize__*'
                     count = 0
                     equalProb = False
                     while not self.addToken(token, i):
                         count += 1
-                        if (count > 5):
+                        if count > self.constEq:
                             equalProb = True
-                        if (count > 100):
+                        if count > self.constBr:
                             break
                         token = self.getToken(size, hash_, equalProb)[0]
-                    if (count < 100):
+                    if not count > self.constBr:
                         break
-        collBrack = {'(' : ')', '{' : '}', '[' : ']', '"' : '"', "'" : "'"}
+                if size == 0:
+                    self.addToken(self.getWord()[0], i)
+
+        collBrack = {'(': ')', '{': '}', '[': ']', '«': '»'}
         while len(self.stackPunct):
             self.textStr += collBrack[self.stackPunct[-1]]
             self.stackPunct.pop()
-        return self.textStr
+
+        return self.textStr + '\n'
 
     def addToken(self, token, ordElem):
         if token == '*__Initialize__*':
@@ -161,61 +186,50 @@ class Generator:
 
         endOfSent = {'!', '.', '?'}
         middleofSent = {',', ':', ';'}
-        openBrack = {'(', '{', '[', "'", '"'}
-        endBrack = {')', '}', ']', "'", '"'}
-        collBrack = {'(' : ')', '{' : '}', '[' : ']', '"' : '"', "'" : "'"}
+        unorderedQuotes = {"'",  '"'}
+        openBrack = {'(', '{', '[', '«'}
+        endBrack = {')', '}', ']', '»'}
+        collBrack = {'(': ')', '{': '}', '[': ']', '«': '»'}
         words = set(string.ascii_letters)
 
-        if token[0] in endOfSent:
+        if self.length - ordElem == len(self.stackPunct) + 1:
+            token = self.getWord()[0]
+
+        if token[0] in unorderedQuotes:
+            if len(self.stackPunct) and self.stackPunct[-1][0] == '«':
+                token = '»'
+            else:
+                token = '«'
+
+        if token[0] in middleofSent or token[0] in endOfSent:
             if not len(self.text):
                 return False
-            if (self.text[-1][0] in openBrack or self.text[-1][0] in middleofSent or self.text[-1][0] in endOfSent):
+            if self.text[-1][0] in openBrack | middleofSent | endOfSent:
                 return False
             if len(self.stackPunct):
                 return False
             self.textStr += token
-            self.state = 'start'
-
-        if token[0] in middleofSent:
-            if not len(self.text):
-                return False
-            if (self.text[-1][0] in openBrack or self.text[-1][0] in middleofSent or self.text[-1][0] in endOfSent):
-                return False
-            if len(self.stackPunct):
-                return False
-            self.textStr += token
-
-        quotes = False
+            if token[0] in endOfSent:
+                self.state = 'start'
 
         if token[0] in endBrack:
             if not len(self.text):
                 return False
-            if token != '"' and token != "'":
-                if not len(self.stackPunct):
-                    return False
-                if collBrack[self.stackPunct[-1]] != token:
-                    return False
-                self.stackPunct.pop()
-                self.textStr += token
-            else:
-                if len(self.stackPunct) and self.stackPunct[-1] == token:
-                    quotes = True
-                    self.stackPunct.pop()
-                    self.textStr += token
-
+            if not len(self.stackPunct):
+                return False
+            if collBrack[self.stackPunct[-1]] != token:
+                return False
+            self.stackPunct.pop()
+            self.textStr += token
 
         if token[0] in openBrack:
-            #Spaces
-            if not quotes:
-                self.stackPunct.append(token)
-                if token == '"' or token == "'":
-                    self.textStr += ' '
-                self.textStr += token
+            if len(self.text) and not self.text[-1][0] in openBrack:
+                self.textStr += ' '
+            self.stackPunct.append(token)
+            self.textStr += token
 
         if token[0] in words:
-            if not len(self.text) or self.text[-1][0] in openBrack:
-                pass
-            else:
+            if len(self.text) and not self.text[-1][0] in openBrack:
                 self.textStr += ' '
             if self.state == 'start':
                 self.textStr += token.capitalize()
@@ -230,11 +244,14 @@ class Generator:
         if equalProb:
             return choices(self.data.data[size][hash_][0])
         else:
-            return choices(self.data.data[size][hash_][0], self.data.data[size][hash_][1])
+            return choices(self.data.data[size][hash_][0],
+                           self.data.data[size][hash_][1])
+
+    def getWord(self):
+        return choices(self.wds)
 
     def readFile(file):
-        data = pickle.load(file)
-        return data
+        return pickle.load(file)
 
     def writeFile(file, text):
         file.write(text)
