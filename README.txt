@@ -1,7 +1,8 @@
 Режим подсчета вероятностей:
-    python TextGeneration.py calculation --inputFile=Alice.txt --outputFile=Probabilities.txt --depth=10
+    python textgen.py calculation --input_file=Alice.txt --output_file=Probabilities.txt --depth=2
 Режим генерации:
-    python TextGeneration.py generation --inputFile=Probabilities.txt --depth=2 --length=30
+    python textgen.py generation --input_file=Probabilities.txt --depth=2 --length=29 
 Примеры:
-    Gloves and a crash of broken glass. There was no time she'd have everybody executed, whether the blows hurt it or not. So they went up to
-    I do wonder what latitude was, that she wasn't a really good school, 'the footman continued in the distance would take the roof off her head was'
+    The door. Poor alice, as she could not stand, and waited. When the race is over! «Alice did not seem to heels»
+    That a moment's delay would cost them their lives. All the time they were playing the queen never left off quarrelling with the other players, and hedgehogs
+
