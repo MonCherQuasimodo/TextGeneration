@@ -1,15 +1,31 @@
 from collections import defaultdict
 from random import choices
 from unicodedata import category
+import re
 import argparse
 import sys
 import pickle
 import string
 
-CONST_EQ = 5
-CONST_BR = 100
+
+# _________________________I/O__________________________ #
+def read_native_text(input_file_utf):
+    return input_file_utf.read()
 
 
+def write_byte_statistic(output_file_byte, byte_statistic):
+    pickle.dump(byte_statistic, output_file_byte, pickle.HIGHEST_PROTOCOL)
+
+
+def read_byte_statistic(input_file_byte):
+    return pickle.load(input_file_byte)
+
+
+def write_native_text(output_file_utf, text):
+    output_file_utf.write(text)
+
+
+# _________________________Sys_Input____________________ #
 def sys_input():
     parser = argparse.ArgumentParser(prog='TextGenerator')
 
@@ -21,7 +37,7 @@ def sys_input():
                                         help='Create a file with prob-ies')
 
     parser_calc.add_argument('--input_file',
-                             type=argparse.FileType('r', encoding='UTF-8'),
+                             type=argparse.FileType('r'),
                              required=True, help='Native text')
 
     parser_calc.add_argument('--output_file', type=argparse.FileType('wb', 0),
@@ -37,7 +53,7 @@ def sys_input():
                              required=True, help='File with probabilities')
 
     parser_calc.add_argument('--output_file',
-                             type=argparse.FileType('w', encoding='UTF-8'),
+                             type=argparse.FileType('w'),
                              default=sys.stdout, help='File for "Native text"')
 
     parser_calc.add_argument('--length', type=int,
@@ -45,202 +61,181 @@ def sys_input():
 
     parser_calc.add_argument('--depth', type=int,
                              required=True, help='Depth of algorithm')
-    return vars(parser.parse_args())
+    return parser.parse_args()
 
 
-class Data:
-    def __init__(self, depth, tokens):
-        self.tokens_to_statistic(depth, tokens)
+def get_def_dict_int():
+    return defaultdict(int)
 
-    def tokens_to_statistic(self, depth, tokens):
-        self.data = [defaultdict(dict) for i in range(depth + 1)]
+
+# _________________________My_Data_Class________________ #
+class StatisticData:
+    def __init__(self, tokens, depth):
+        self.data = [defaultdict(get_def_dict_int) for i in range(depth + 1)]
 
         for cur_depth in range(depth + 1):
             for start in range(len(tokens) - cur_depth):
                 sub_list = tokens[start: start + cur_depth]
                 hash_ = (tuple(sub_list))
-                if tokens[start + cur_depth] in self.data[cur_depth][hash_]:
-                    self.data[cur_depth][hash_][tokens[start + cur_depth]] += 1
-                else:
-                    self.data[cur_depth][hash_][tokens[start + cur_depth]] = 1
+                self.data[cur_depth][hash_][tokens[start + cur_depth]] += 1
 
         for cur_depth_dict in self.data:
             for key in cur_depth_dict.keys():
                 tokens = list(cur_depth_dict[key].keys())
                 abs_sum = sum(cur_depth_dict[key].values())
-                normal_prob = []
-                for i in tokens:
-                    normal_prob.append(cur_depth_dict[key][i] / abs_sum)
+                normal_prob = [cur_depth_dict[key][token] / abs_sum
+                               for token in tokens]
                 cur_depth_dict[key] = (tokens, normal_prob)
+
+    def getWordList(self):
+        return [token for token in self.data[0][tuple()][0] if token.isalpha()]
 
     def __repr__(self):
         output = 'Statistic:\n'
-        for i in self.data:
-            for c in i.items():
+        for depth in self.data:
+            for c in depth.items():
                 output += str(c) + '\n'
             output += '\n'
         return output
 
 
-class Calculator:
-    def __init__(self, args):
-        self.input_file = args['input_file']
-        self.output_file = args['output_file']
-        self.depth = args['depth']
-        self.calculate()
+# _______________________Calculator_____________________ #
+class ProbabilitiesCalculator:
+    def __init__(self, native_text, depth):
+        self.depth = depth
+        self.text = native_text
 
     def calculate(self):
-        text = Calculator.read_file(self.input_file)
-        tokens = Calculator.text_to_tokens(text)
-        data = Data(self.depth, tokens)
-        Calculator.write_file(self.output_file, data)
+        tokens = self.text_to_tokens()
+        statistic = StatisticData(tokens, self.depth)
         print("The calculation has ended")
+        return statistic
 
-    def read_file(file):
-        return ' '.join(file.readlines())
-
-    def write_file(file, data):
-        pickle.dump(data, file, pickle.HIGHEST_PROTOCOL)
-
-    def text_to_tokens(text):
+    def text_to_tokens(self):
         tokens = []
-
-        for i in text.split():
-            tokens.extend(Calculator.word_to_tokens(i))
+        for word in self.text.split():
+            tokens.extend(self.word_to_tokens(word))
         return tokens
 
-    def word_to_tokens(word):
+    def word_to_tokens(self, word):
         tokens = []
-        i = 0
 
-        while i < len(word) - 1 and not word[i].isalpha():
-            tokens.append(word[i])
-            i += 1
-        word = word[i:]
+        pos = 0
+        while pos < len(word) - 1 and not word[pos].isalpha():
+            tokens.append(word[pos])
+            pos += 1
+        word = word[pos:]
 
         punct_after = []
-        i = len(word) - 1
-        while i > 1 and not word[i].isalpha():
-            punct_after.append(word[i])
-            i -= 1
+        pos = len(word) - 1
+        while pos > 1 and not word[pos].isalpha():
+            punct_after.append(word[pos])
+            pos -= 1
         punct_after.reverse()
-        word = word[:i+1]
+        word = word[:pos+1]
         tokens.append(word.lower())
         tokens.extend(punct_after)
 
         return tokens
 
 
-class Generator:
-    def __init__(self, args):
-        self.input_file = args['input_file']
-        self.output_file = args['output_file']
-        self.depth = args['depth']
-        self.length = args['length']
-        self.generate()
+# ________________________Generator______________________ #
+class TextGenerator:
+    def __init__(self, statistic, depth, length):
+        self.data = statistic
+        self.depth = depth
+        self.length = length
+
+        self.end_of_sent = {'!', '.', '?'}
+        self.middle_of_sent = {',', ':', ';', '—'}
+        self.unordered_quotes = {"'",  '"'}
+        self.open_brack = {'(', '{', '[', '«'}
+        self.end_brack = {')', '}', ']', '»'}
+        self.letters = set(string.ascii_letters)
+
+        self.all_symb = (
+            self.end_of_sent | self.middle_of_sent | self.unordered_quotes |
+            self.open_brack | self.end_brack | self.letters
+        )
+
+        self.coll_brack = {'(': ')', '{': '}', '[': ']', '«': '»'}
 
     def generate(self):
-        self.data = Generator.read_file(self.input_file)
         text = self.data_to_text()
-        Generator.write_file(self.output_file, text)
         print("The generation has ended")
+        return text
 
     def data_to_text(self):
         self.text = []
         self.stack_punct = []
         self.text_str = ''
-        self.state = 'start'
-        self.wds = [i for i in self.data.data[0][tuple([])][0] if i.isalpha()]
+        self.state_start = True
 
-        for i in range(self.length):
-            if self.length - i == len(self.stack_punct):
+        for ord in range(self.length):
+            if self.length - ord == len(self.stack_punct):
                 break
-            for size in range(min(i, self.depth), -1, -1):
-                text_suffix = self.text[-size:] if size > 0 else []
-                hash_ = tuple(text_suffix)
+            for size in range(min(ord, self.depth), -1, -1):
+                hash_ = tuple(self.text[-size:] if size > 0 else [])
                 if hash_ in self.data.data[size]:
-                    token = '*__Initialize__*'
-                    count = 0
-                    equal_prob = False
-                    while not self.add_token(token, i):
-                        count += 1
-                        if count > CONST_EQ:
-                            equal_prob = True
-                        if count > CONST_BR:
-                            break
-                        token = self.get_token(size, hash_, equal_prob)[0]
-                    if not count > CONST_BR:
+                    if self.add_token(self.get_token(size, hash_), ord):
+                        break
+                    if self.add_token(self.get_token(size, hash_, True), ord):
                         break
                 if size == 0:
-                    self.add_token(self.get_word()[0], i)
+                    self.add_token(self.get_word(), ord)
 
-        coll_brack = {'(': ')', '{': '}', '[': ']', '«': '»'}
-        while len(self.stack_punct):
-            self.text_str += coll_brack[self.stack_punct[-1]]
+        while self.stack_punct:
+            self.text_str += self.coll_brack[self.stack_punct[-1]]
             self.stack_punct.pop()
         return self.text_str + '\n'
 
     def add_token(self, token, ord_elem):
-        if token == '*__Initialize__*':
-            return False
-
-        end_of_sent = {'!', '.', '?'}
-        middle_of_sent = {',', ':', ';', '—'}
-        unordered_quotes = {"'",  '"'}
-        open_brack = {'(', '{', '[', '«'}
-        end_brack = {')', '}', ']', '»'}
-        words = set(string.ascii_letters)
-
-        all_symb = end_of_sent | middle_of_sent | unordered_quotes
-        all_symb = all_symb | open_brack | end_brack | words
-
-        coll_brack = {'(': ')', '{': '}', '[': ']', '«': '»'}
-
-        if token[0] not in all_symb:
+        if token[0] not in self.all_symb:
             return False
 
         if self.length - ord_elem == len(self.stack_punct) + 1:
-            token = self.get_word()[0]
+            token = self.get_word()
 
-        if token[0] in unordered_quotes:
-            if len(self.stack_punct) and self.stack_punct[-1][0] == '«':
+        if token[0] in self.unordered_quotes:
+            if self.stack_punct and self.stack_punct[-1][0] == '«':
                 token = '»'
             else:
                 token = '«'
 
-        if token[0] in middle_of_sent or token[0] in end_of_sent:
-            if not len(self.text):
+        if token[0] in self.middle_of_sent or token[0] in self.end_of_sent:
+            if not self.text:
                 return False
-            if self.text[-1][0] in open_brack | middle_of_sent | end_of_sent:
+            if self.text[-1][0] in (self.open_brack | self.middle_of_sent |
+                                    self.end_of_sent):
                 return False
-            if len(self.stack_punct):
+            if self.stack_punct:
                 return False
             self.text_str += token
-            if token[0] in end_of_sent:
-                self.state = 'start'
+            if token[0] in self.end_of_sent:
+                self.state_start = True
 
-        if token[0] in end_brack:
-            if not len(self.text):
+        if token[0] in self.end_brack:
+            if not self.text:
                 return False
-            if not len(self.stack_punct):
+            if not self.stack_punct:
                 return False
-            if coll_brack[self.stack_punct[-1]] != token:
+            if self.coll_brack[self.stack_punct[-1]] != token:
                 return False
             self.stack_punct.pop()
             self.text_str += token
 
-        if token[0] in open_brack:
-            if len(self.text) and not self.text[-1][0] in open_brack:
+        if token[0] in self.open_brack:
+            if self.text and not self.text[-1][0] in self.open_brack:
                 self.text_str += ' '
             self.stack_punct.append(token)
             self.text_str += token
 
-        if token[0] in words:
-            if len(self.text) and not self.text[-1][0] in open_brack:
+        if token[0] in self.letters:
+            if self.text and not self.text[-1][0] in self.open_brack:
                 self.text_str += ' '
-            if self.state == 'start':
+            if self.state_start:
                 self.text_str += token.capitalize()
-                self.state = 'inSent'
+                self.state_start = False
             else:
                 self.text_str += token
 
@@ -249,23 +244,24 @@ class Generator:
 
     def get_token(self, size, hash_, equal_prob=False):
         if equal_prob:
-            return choices(self.data.data[size][hash_][0])
+            return choices(self.data.data[size][hash_][0])[0]
         else:
             return choices(self.data.data[size][hash_][0],
-                           self.data.data[size][hash_][1])
+                           self.data.data[size][hash_][1])[0]
 
     def get_word(self):
-        return choices(self.wds)
+        return choices(self.data.getWordList())[0]
 
-    def read_file(file):
-        return pickle.load(file)
-
-    def write_file(file, text):
-        file.write(text)
-
+# _________________________Main_________________________ #
 if __name__ == "__main__":
     args = sys_input()
-    if (args['mode'] == 'calculation'):
-        calc = Calculator(args)
+    if (args.mode == 'calculation'):
+        native_text = read_native_text(args.input_file)
+        calculator = ProbabilitiesCalculator(native_text, args.depth)
+        byte_statistic = calculator.calculate()
+        write_byte_statistic(args.output_file, byte_statistic)
     else:
-        gen = Generator(args)
+        statistic = read_byte_statistic(args.input_file)
+        generator = TextGenerator(statistic, args.depth, args.length)
+        pseudo_native_text = generator.generate()
+        write_native_text(args.output_file, pseudo_native_text)
