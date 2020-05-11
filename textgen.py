@@ -1,4 +1,5 @@
 from collections import defaultdict
+from collections import Counter
 from random import choices
 from unicodedata import category
 import re
@@ -6,11 +7,12 @@ import argparse
 import sys
 import pickle
 import string
+import json
 
 
 # _________________________I/O__________________________ #
 def read_native_text(input_file_utf):
-    return input_file_utf.read()
+    return input_file_utf.read().lower()
 
 
 def write_byte_statistic(output_file_byte, byte_statistic):
@@ -25,8 +27,8 @@ def write_native_text(output_file_utf, text):
     output_file_utf.write(text)
 
 
-# _________________________Sys_Input____________________ #
-def sys_input():
+# _________________________Parse_args____________________ #
+def parse_args():
     parser = argparse.ArgumentParser(prog='TextGenerator')
 
     subparsers = parser.add_subparsers(title='Modes',
@@ -64,39 +66,41 @@ def sys_input():
     return parser.parse_args()
 
 
-def get_def_dict_int():
-    return defaultdict(int)
-
-
 # _________________________My_Data_Class________________ #
 class StatisticData:
     def __init__(self, tokens, depth):
-        self.data = [defaultdict(get_def_dict_int) for i in range(depth + 1)]
+        next_elem = defaultdict(list)
 
         for cur_depth in range(depth + 1):
             for start in range(len(tokens) - cur_depth):
                 sub_list = tokens[start: start + cur_depth]
-                hash_ = (tuple(sub_list))
-                self.data[cur_depth][hash_][tokens[start + cur_depth]] += 1
+                hash = tuple(sub_list)
+                next_elem[hash].append(tokens[start + cur_depth])
 
-        for cur_depth_dict in self.data:
-            for key in cur_depth_dict.keys():
-                tokens = list(cur_depth_dict[key].keys())
-                abs_sum = sum(cur_depth_dict[key].values())
-                normal_prob = [cur_depth_dict[key][token] / abs_sum
-                               for token in tokens]
-                cur_depth_dict[key] = (tokens, normal_prob)
+        self.amount_token = defaultdict(list)
+        self.next_token = defaultdict(list)
 
-    def getWordList(self):
-        return [token for token in self.data[0][tuple()][0] if token.isalpha()]
+        for hash, elements in next_elem.items():
+            counter = Counter(elements)
+            self.next_token[hash] = list(counter.keys())
+            self.amount_token[hash] = list(counter.values())
 
-    def __repr__(self):
-        output = 'Statistic:\n'
-        for depth in self.data:
-            for c in depth.items():
-                output += str(c) + '\n'
-            output += '\n'
-        return output
+    def get_token(self, hash, set_avaliable_token):
+
+        temp_dict = dict(zip(self.next_token[hash], self.amount_token[hash]))
+        temp_dict = {key: value for key, value in temp_dict.items()
+                     if key[0] in set_avaliable_token}
+
+        if not temp_dict:
+            return "There is no elements, that need"
+
+        return choices(list(temp_dict.keys()),
+                       StatisticData.normalize(list(temp_dict.values())))[0]
+
+    @staticmethod
+    def normalize(list):
+        absSum = sum(list)
+        return [elem / absSum for elem in list]
 
 
 # _______________________Calculator_____________________ #
@@ -118,47 +122,26 @@ class ProbabilitiesCalculator:
         return tokens
 
     def word_to_tokens(self, word):
-        tokens = []
-
-        pos = 0
-        while pos < len(word) - 1 and not word[pos].isalpha():
-            tokens.append(word[pos])
-            pos += 1
-        word = word[pos:]
-
-        punct_after = []
-        pos = len(word) - 1
-        while pos > 1 and not word[pos].isalpha():
-            punct_after.append(word[pos])
-            pos -= 1
-        punct_after.reverse()
-        word = word[:pos+1]
-        tokens.append(word.lower())
-        tokens.extend(punct_after)
-
+        tokens = re.split(rf"(\w+|\w+'\w+|[{string.punctuation}])", word)
+        tokens = [token for token in tokens if token != '']
         return tokens
 
 
 # ________________________Generator______________________ #
 class TextGenerator:
+    end_of_sent = {'!', '.', '?'}
+    middle_of_sent = {',', ':', ';', '—'}
+    unordered_quotes = {"'",  '"'}
+    open_brack = {'(', '{', '[', '«'}
+    end_brack = {')', '}', ']', '»'}
+    letters = frozenset(string.ascii_letters)
+
+    coll_brack = {'(': ')', '{': '}', '[': ']', '«': '»'}
+
     def __init__(self, statistic, depth, length):
         self.data = statistic
         self.depth = depth
         self.length = length
-
-        self.end_of_sent = {'!', '.', '?'}
-        self.middle_of_sent = {',', ':', ';', '—'}
-        self.unordered_quotes = {"'",  '"'}
-        self.open_brack = {'(', '{', '[', '«'}
-        self.end_brack = {')', '}', ']', '»'}
-        self.letters = set(string.ascii_letters)
-
-        self.all_symb = (
-            self.end_of_sent | self.middle_of_sent | self.unordered_quotes |
-            self.open_brack | self.end_brack | self.letters
-        )
-
-        self.coll_brack = {'(': ')', '{': '}', '[': ']', '«': '»'}
 
     def generate(self):
         text = self.data_to_text()
@@ -175,86 +158,73 @@ class TextGenerator:
             if self.length - ord == len(self.stack_punct):
                 break
             for size in range(min(ord, self.depth), -1, -1):
-                hash_ = tuple(self.text[-size:] if size > 0 else [])
-                if hash_ in self.data.data[size]:
-                    if self.add_token(self.get_token(size, hash_), ord):
-                        break
-                    if self.add_token(self.get_token(size, hash_, True), ord):
-                        break
-                if size == 0:
-                    self.add_token(self.get_word(), ord)
+                hash = tuple(self.text[-size:] if size > 0 else [])
+                token = self.data.get_token(hash,
+                                            self.get_avaliable_tokens(ord))
+                if (token != "There is no elements, that need"):
+                    self.add_token(token)
+                    break
 
         while self.stack_punct:
-            self.text_str += self.coll_brack[self.stack_punct[-1]]
+            self.text_str += TextGenerator.coll_brack[self.stack_punct[-1]]
             self.stack_punct.pop()
+
         return self.text_str + '\n'
 
-    def add_token(self, token, ord_elem):
-        if token[0] not in self.all_symb:
-            return False
-
-        if self.length - ord_elem == len(self.stack_punct) + 1:
-            token = self.get_word()
-
-        if token[0] in self.unordered_quotes:
+    def add_token(self, token):
+        if token[0] in TextGenerator.unordered_quotes:
             if self.stack_punct and self.stack_punct[-1][0] == '«':
                 token = '»'
             else:
                 token = '«'
 
-        if token[0] in self.middle_of_sent or token[0] in self.end_of_sent:
-            if not self.text:
-                return False
-            if self.text[-1][0] in (self.open_brack | self.middle_of_sent |
-                                    self.end_of_sent):
-                return False
-            if self.stack_punct:
-                return False
-            self.text_str += token
-            if token[0] in self.end_of_sent:
-                self.state_start = True
+        if token[0] in TextGenerator.end_of_sent:
+            self.state_start = True
 
-        if token[0] in self.end_brack:
-            if not self.text:
-                return False
-            if not self.stack_punct:
-                return False
-            if self.coll_brack[self.stack_punct[-1]] != token:
-                return False
+        if token[0] in TextGenerator.end_brack:
             self.stack_punct.pop()
-            self.text_str += token
 
-        if token[0] in self.open_brack:
-            if self.text and not self.text[-1][0] in self.open_brack:
+        if token[0] in TextGenerator.open_brack:
+            if self.text and not self.text[-1][0] in TextGenerator.open_brack:
                 self.text_str += ' '
             self.stack_punct.append(token)
-            self.text_str += token
 
-        if token[0] in self.letters:
-            if self.text and not self.text[-1][0] in self.open_brack:
+        if token[0] in TextGenerator.letters:
+            if self.text and not self.text[-1][0] in TextGenerator.open_brack:
                 self.text_str += ' '
             if self.state_start:
-                self.text_str += token.capitalize()
+                token = token.capitalize()
                 self.state_start = False
-            else:
-                self.text_str += token
 
+        self.text_str += token
         self.text.append(token)
-        return True
 
-    def get_token(self, size, hash_, equal_prob=False):
-        if equal_prob:
-            return choices(self.data.data[size][hash_][0])[0]
+    def get_avaliable_tokens(self, ord):
+        ret_set = set()
+        ret_set |= TextGenerator.letters
+        if self.length - ord == len(self.stack_punct) + 1:
+            return ret_set
+
+        ret_set |= TextGenerator.unordered_quotes | TextGenerator.open_brack
+
+        if not self.text:
+            return ret_set
+
+        if self.stack_punct:
+            ret_set.add(TextGenerator.coll_brack[self.stack_punct[-1]])
         else:
-            return choices(self.data.data[size][hash_][0],
-                           self.data.data[size][hash_][1])[0]
+            if self.text[-1][0] in TextGenerator.letters:
+                ret_set |= (TextGenerator.middle_of_sent |
+                            TextGenerator.end_of_sent)
+            if self.text[-1][0] in TextGenerator.end_brack:
+                ret_set |= TextGenerator.end_of_sent
 
-    def get_word(self):
-        return choices(self.data.getWordList())[0]
+        return ret_set
+
 
 # _________________________Main_________________________ #
 if __name__ == "__main__":
-    args = sys_input()
+    args = parse_args()
     if (args.mode == 'calculation'):
         native_text = read_native_text(args.input_file)
         calculator = ProbabilitiesCalculator(native_text, args.depth)
