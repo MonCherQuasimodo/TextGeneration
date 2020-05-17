@@ -74,69 +74,62 @@ class StatisticData:
         for cur_depth in range(depth + 1):
             for start in range(len(tokens) - cur_depth):
                 sub_list = tokens[start: start + cur_depth]
-                hash = tuple(sub_list)
-                next_elem[hash].append(tokens[start + cur_depth])
+                prefix_n_gramm = tuple(sub_list)
+                next_elem[prefix_n_gramm].append(tokens[start + cur_depth])
 
         self.amount_token = defaultdict(list)
         self.next_token = defaultdict(list)
 
-        for hash, elements in next_elem.items():
+        for prefix_n_gramm, elements in next_elem.items():
             counter = Counter(elements)
-            self.next_token[hash] = list(counter.keys())
-            self.amount_token[hash] = list(counter.values())
+            self.next_token[prefix_n_gramm] = list(counter.keys())
+            self.amount_token[prefix_n_gramm] = list(counter.values())
 
-    def get_token(self, hash, set_avaliable_token):
-
-        temp_dict = dict(zip(self.next_token[hash], self.amount_token[hash]))
-        temp_dict = {key: value for key, value in temp_dict.items()
+    def get_token(self, prefix_n_gramm, set_avaliable_token):
+        temp_dict = {key: value for key, value in
+                     zip(self.next_token[prefix_n_gramm],
+                         self.amount_token[prefix_n_gramm])
                      if key[0] in set_avaliable_token}
 
         if not temp_dict:
-            return "There is no elements, that need"
+            return None
 
         return choices(list(temp_dict.keys()),
-                       StatisticData.normalize(list(temp_dict.values())))[0]
+                       self.normalize(list(temp_dict.values())))[0]
 
     @staticmethod
-    def normalize(list):
-        absSum = sum(list)
-        return [elem / absSum for elem in list]
+    def normalize(list_prob):
+        abs_sum = sum(list_prob)
+        return [elem / abs_sum for elem in list_prob]
 
 
-# _______________________Calculator_____________________ #
-class ProbabilitiesCalculator:
+# _______________________TextParser_____________________ #
+class TextParser:
     def __init__(self, native_text, depth):
         self.depth = depth
         self.text = native_text
 
-    def calculate(self):
-        tokens = self.text_to_tokens()
-        statistic = StatisticData(tokens, self.depth)
-        print("The calculation has ended")
-        return statistic
-
-    def text_to_tokens(self):
+    def parse(self):
         tokens = []
         for word in self.text.split():
             tokens.extend(self.word_to_tokens(word))
         return tokens
 
     def word_to_tokens(self, word):
-        tokens = re.split(rf"(\w+|\w+'\w+|[{string.punctuation}])", word)
-        tokens = [token for token in tokens if token != '']
+        tokens = re.findall(rf"(\w+|\w+'\w+|[{string.punctuation}])", word)
         return tokens
 
 
-# ________________________Generator______________________ #
+# ________________________TextGenerator______________________ #
 class TextGenerator:
-    end_of_sent = {'!', '.', '?'}
-    middle_of_sent = {',', ':', ';', '—'}
-    unordered_quotes = {"'",  '"'}
-    open_brack = {'(', '{', '[', '«'}
-    end_brack = {')', '}', ']', '»'}
-    letters = frozenset(string.ascii_letters)
+    END_OF_SENT = {'!', '.', '?'}
+    MIDDLE_OF_SENT = {',', ':', ';', '—'}
+    UNORDERED_QUOTES = {"'",  '"'}
+    OPEN_BRACK = {'(', '{', '[', '«'}
+    END_BRACK = {')', '}', ']', '»'}
+    LETTERS = frozenset(string.ascii_letters)
 
-    coll_brack = {'(': ')', '{': '}', '[': ']', '«': '»'}
+    COLL_BRACK = {'(': ')', '{': '}', '[': ']', '«': '»'}
 
     def __init__(self, statistic, depth, length):
         self.data = statistic
@@ -144,53 +137,48 @@ class TextGenerator:
         self.length = length
 
     def generate(self):
-        text = self.data_to_text()
-        print("The generation has ended")
-        return text
-
-    def data_to_text(self):
         self.text = []
         self.stack_punct = []
         self.text_str = ''
         self.state_start = True
 
-        for ord in range(self.length):
-            if self.length - ord == len(self.stack_punct):
+        for ord_tok in range(self.length):
+            if self.length - ord_tok == len(self.stack_punct):
                 break
-            for size in range(min(ord, self.depth), -1, -1):
-                hash = tuple(self.text[-size:] if size > 0 else [])
-                token = self.data.get_token(hash,
-                                            self.get_avaliable_tokens(ord))
-                if (token != "There is no elements, that need"):
+            for size in range(min(ord_tok, self.depth), -1, -1):
+                prefix_n_gramm = tuple(self.text[-size:] if size > 0 else [])
+                token = self.data.get_token(prefix_n_gramm,
+                                            self.get_avaliable_tokens(ord_tok))
+                if token is not None:
                     self.add_token(token)
                     break
 
         while self.stack_punct:
-            self.text_str += TextGenerator.coll_brack[self.stack_punct[-1]]
+            self.text_str += self.COLL_BRACK[self.stack_punct[-1]]
             self.stack_punct.pop()
 
         return self.text_str + '\n'
 
     def add_token(self, token):
-        if token[0] in TextGenerator.unordered_quotes:
+        if token[0] in self.UNORDERED_QUOTES:
             if self.stack_punct and self.stack_punct[-1][0] == '«':
                 token = '»'
             else:
                 token = '«'
 
-        if token[0] in TextGenerator.end_of_sent:
+        if token[0] in self.END_OF_SENT:
             self.state_start = True
 
-        if token[0] in TextGenerator.end_brack:
+        if token[0] in self.END_BRACK:
             self.stack_punct.pop()
 
-        if token[0] in TextGenerator.open_brack:
-            if self.text and not self.text[-1][0] in TextGenerator.open_brack:
+        if token[0] in self.OPEN_BRACK:
+            if self.text and not self.text[-1][0] in self.OPEN_BRACK:
                 self.text_str += ' '
             self.stack_punct.append(token)
 
-        if token[0] in TextGenerator.letters:
-            if self.text and not self.text[-1][0] in TextGenerator.open_brack:
+        if token[0] in self.LETTERS:
+            if self.text and not self.text[-1][0] in self.OPEN_BRACK:
                 self.text_str += ' '
             if self.state_start:
                 token = token.capitalize()
@@ -199,25 +187,25 @@ class TextGenerator:
         self.text_str += token
         self.text.append(token)
 
-    def get_avaliable_tokens(self, ord):
+    def get_avaliable_tokens(self, ord_tok):
         ret_set = set()
-        ret_set |= TextGenerator.letters
-        if self.length - ord == len(self.stack_punct) + 1:
+        ret_set |= self.LETTERS
+        if self.length - ord_tok == len(self.stack_punct) + 1:
             return ret_set
 
-        ret_set |= TextGenerator.unordered_quotes | TextGenerator.open_brack
+        ret_set |= self.UNORDERED_QUOTES | self.OPEN_BRACK
 
         if not self.text:
             return ret_set
 
         if self.stack_punct:
-            ret_set.add(TextGenerator.coll_brack[self.stack_punct[-1]])
+            ret_set.add(self.COLL_BRACK[self.stack_punct[-1]])
         else:
-            if self.text[-1][0] in TextGenerator.letters:
-                ret_set |= (TextGenerator.middle_of_sent |
-                            TextGenerator.end_of_sent)
-            if self.text[-1][0] in TextGenerator.end_brack:
-                ret_set |= TextGenerator.end_of_sent
+            if self.text[-1][0] in self.LETTERS:
+                ret_set |= (self.MIDDLE_OF_SENT |
+                            self.END_OF_SENT)
+            if self.text[-1][0] in self.END_BRACK:
+                ret_set |= self.END_OF_SENT
 
         return ret_set
 
@@ -225,13 +213,15 @@ class TextGenerator:
 # _________________________Main_________________________ #
 if __name__ == "__main__":
     args = parse_args()
-    if (args.mode == 'calculation'):
+    if args.mode == 'calculation':
         native_text = read_native_text(args.input_file)
-        calculator = ProbabilitiesCalculator(native_text, args.depth)
-        byte_statistic = calculator.calculate()
+        tokens = TextParser(native_text, args.depth).parse()
+        byte_statistic = StatisticData(tokens, args.depth)
         write_byte_statistic(args.output_file, byte_statistic)
+        print("The calculation has ended")
     else:
         statistic = read_byte_statistic(args.input_file)
         generator = TextGenerator(statistic, args.depth, args.length)
         pseudo_native_text = generator.generate()
         write_native_text(args.output_file, pseudo_native_text)
+        print("The generation has ended")
